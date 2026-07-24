@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Florida Boat Ramp Atlas</title>
+<meta name="description" content="Every public boat ramp in Florida, mapped from the FWC open data inventory.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+
+<style>
+  :root{
+    --navy: #0e2a3d;
+    --navy-deep: #081b28;
+    --paper: #efe6d3;
+    --paper-hi: #f7f1e2;
+    --ink: #16232c;
+    --buoy: #d3541a;
+    --buoy-dim: #a84312;
+    --sound: #2f7a78;
+    --brass: #b08d57;
+    --line: rgba(22,35,44,0.14);
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    font-family:'Inter',sans-serif;
+    color:var(--ink);
+    background:var(--navy-deep);
+    overflow:hidden;
+  }
+
+  /* ---------- Title block ---------- */
+  #titleblock{
+    position:fixed; top:0; left:0; right:0; z-index:1000;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 20px;
+    background:linear-gradient(180deg, rgba(8,27,40,0.92) 0%, rgba(8,27,40,0.55) 80%, rgba(8,27,40,0) 100%);
+    pointer-events:none;
+  }
+  #titleblock .name{
+    font-family:'Fraunces', serif;
+    font-optical-sizing:auto;
+    font-weight:600;
+    font-size:22px;
+    color:var(--paper-hi);
+    letter-spacing:0.2px;
+    pointer-events:auto;
+  }
+  #titleblock .name small{
+    display:block;
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:400;
+    font-size:11px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    color:var(--brass);
+    margin-top:2px;
+  }
+  #count-badge{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--paper-hi);
+    background:rgba(239,230,211,0.1);
+    border:1px solid rgba(239,230,211,0.25);
+    border-radius:20px;
+    padding:6px 14px;
+    pointer-events:auto;
+    white-space:nowrap;
+  }
+
+  /* ---------- Map ---------- */
+  #map{position:absolute; inset:0;}
+  .leaflet-container{background:#0a2233;}
+
+  /* ---------- Ledger / sidebar ---------- */
+  #ledger{
+    position:fixed; top:0; left:0; bottom:0; z-index:900;
+    width:340px;
+    background:var(--paper);
+    border-right:1px solid var(--brass);
+    display:flex; flex-direction:column;
+    overflow-y:auto;
+    transform:translateX(0);
+    transition:transform 0.25s ease;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.35);
+  }
+  #ledger::-webkit-scrollbar{width:8px;}
+  #ledger::-webkit-scrollbar-thumb{background:var(--brass); border-radius:4px;}
+  #ledger.collapsed{ transform:translateX(-100%); }
+
+  #ledger-head{
+    padding:calc(var(--tb-h, 66px) + 14px) 20px 14px 20px;
+    border-bottom:1px solid var(--line);
+  }
+  #ledger-head h1{
+    margin:0 0 2px 0;
+    font-family:'Fraunces', serif;
+    font-weight:700;
+    font-size:26px;
+    line-height:1.1;
+  }
+  #ledger-head p{
+    margin:6px 0 0 0;
+    font-size:12.5px;
+    color:#4b5a63;
+    line-height:1.5;
+  }
+
+  .field{
+    padding:14px 20px 0 20px;
+  }
+  .field label{
+    display:block;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    letter-spacing:1.2px;
+    text-transform:uppercase;
+    color:var(--sound);
+    margin-bottom:6px;
+  }
+  #search{
+    width:100%;
+    padding:9px 12px;
+    font-family:'Inter';
+    font-size:14px;
+    border:1px solid var(--line);
+    border-radius:4px;
+    background:var(--paper-hi);
+    color:var(--ink);
+  }
+  #search:focus{outline:2px solid var(--sound); outline-offset:1px;}
+
+  select{
+    width:100%;
+    padding:9px 12px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12.5px;
+    border:1px solid var(--line);
+    border-radius:4px;
+    background:var(--paper-hi);
+    color:var(--ink);
+    appearance:none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%232f7a78'><path d='M5 8l5 5 5-5z'/></svg>");
+    background-repeat:no-repeat;
+    background-position:right 10px center;
+    background-size:16px;
+  }
+  select:focus{outline:2px solid var(--sound); outline-offset:1px;}
+
+  .checkrow{
+    display:flex; align-items:center; gap:8px;
+    padding:12px 20px 0 20px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--ink);
+  }
+  .checkrow input{accent-color:var(--buoy); width:14px; height:14px;}
+
+  #results-count{
+    margin:14px 20px 0 20px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    letter-spacing:1.2px;
+    text-transform:uppercase;
+    color:#6b7a83;
+    display:flex;
+    justify-content:space-between;
+    border-top:1px solid var(--line);
+    padding-top:12px;
+  }
+  #results-count button{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    letter-spacing:0.5px;
+    background:none;
+    border:none;
+    color:var(--buoy);
+    cursor:pointer;
+    padding:0;
+  }
+
+  #manifest{
+    margin-top:8px;
+    padding:0 0 90px 0;
+  }
+
+  .entry{
+    display:block;
+    width:100%;
+    text-align:left;
+    background:none;
+    border:none;
+    border-bottom:1px solid var(--line);
+    padding:11px 20px;
+    cursor:pointer;
+    font-family:'Inter';
+  }
+  .entry:hover, .entry.active{background:rgba(211,84,26,0.08);}
+  .entry .rname{
+    font-size:13.5px;
+    font-weight:600;
+    color:var(--ink);
+    margin-bottom:3px;
+  }
+  .entry .rmeta{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    color:#6b7a83;
+    letter-spacing:0.3px;
+  }
+  .entry .rmeta .dot{color:var(--brass); margin:0 5px;}
+
+  #empty-state{
+    padding:30px 20px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:#6b7a83;
+    text-align:center;
+    line-height:1.6;
+  }
+
+  /* ---------- Map control corners (Leaflet manages stacking/overlap) ---------- */
+  .leaflet-control-container .leaflet-bottom.leaflet-right{
+    display:flex; flex-direction:column; align-items:flex-end; gap:10px;
+  }
+  .leaflet-control-container .leaflet-top.leaflet-right{
+    display:flex; flex-direction:column; align-items:flex-end; gap:8px;
+    margin-top:var(--tb-h, 66px);
+  }
+  .leaflet-control-container .leaflet-top.leaflet-left{
+    margin-top:var(--tb-h, 66px);
+  }
+
+  #ledger-toggle.leaflet-control{
+    display:flex; align-items:center; gap:7px;
+    background:var(--navy);
+    border:1px solid var(--brass);
+    border-radius:20px;
+    padding:8px 14px 8px 12px;
+    margin:10px 0 0 12px !important;
+    cursor:pointer;
+    color:var(--paper-hi);
+    box-shadow:0 2px 8px rgba(0,0,0,0.4);
+  }
+  #ledger-toggle svg{width:16px;height:16px; flex-shrink:0;}
+  #ledger-toggle span{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.8px;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  #ledger-toggle:hover{border-color:var(--buoy); color:var(--buoy);}
+
+  /* ---------- Map control corners (Leaflet manages stacking/overlap) ---------- */
+  #map-tools.leaflet-control{
+    display:flex; flex-direction:column; gap:10px;
+    margin:0 12px 12px 0 !important;
+    background:none; border:none;
+  }
+
+  #compass{
+    width:52px; height:52px; cursor:pointer;
+    filter:drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+    transition:transform 0.4s ease;
+  }
+  #compass:hover{transform:rotate(18deg);}
+
+  #locate-btn{
+    width:42px; height:42px;
+    background:var(--navy);
+    border:1px solid var(--brass);
+    border-radius:50%;
+    color:var(--paper-hi);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    box-shadow:0 2px 8px rgba(0,0,0,0.4);
+    align-self:flex-end;
+  }
+  #locate-btn svg{width:19px; height:19px;}
+  #locate-btn:hover{color:var(--buoy);}
+  #locate-btn.active{color:var(--buoy); border-color:var(--buoy);}
+  #locate-btn.loading svg{animation:spin 1s linear infinite;}
+
+  .user-dot{
+    width:16px; height:16px;
+    background:var(--sound);
+    border:3px solid var(--paper-hi);
+    border-radius:50%;
+    box-shadow:0 0 0 6px rgba(47,122,120,0.35);
+  }
+
+  #layer-toggle.leaflet-control{
+    display:flex;
+    background:var(--navy);
+    border:1px solid var(--brass);
+    border-radius:20px;
+    padding:3px;
+    margin:0 0 26px 12px !important;
+    box-shadow:0 2px 8px rgba(0,0,0,0.4);
+  }
+  #layer-toggle button{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.5px;
+    background:none;
+    border:none;
+    color:var(--paper-hi);
+    opacity:0.65;
+    padding:7px 14px;
+    border-radius:16px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  #layer-toggle button.active{
+    background:var(--buoy);
+    opacity:1;
+    color:#fff;
+  }
+
+  /* ---------- Popup styling ---------- */
+  .leaflet-popup-content-wrapper{
+    background:var(--paper);
+    border-radius:2px;
+    border:1px solid var(--brass);
+    box-shadow:0 8px 24px rgba(0,0,0,0.4);
+  }
+  .leaflet-popup-tip{background:var(--paper); border:1px solid var(--brass); border-top:none; border-left:none;}
+  .leaflet-popup-content{margin:16px 18px; width:260px !important;}
+  .leaflet-popup-close-button{color:var(--ink) !important;}
+
+  .pop-tag{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10px;
+    letter-spacing:1px;
+    text-transform:uppercase;
+    color:var(--sound);
+    margin-bottom:4px;
+  }
+  .pop-name{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:17px;
+    line-height:1.2;
+    margin-bottom:8px;
+  }
+  .pop-row{
+    font-size:12.5px;
+    color:#3a4750;
+    margin-bottom:4px;
+    line-height:1.4;
+  }
+  .pop-row b{color:var(--ink);}
+  .pop-badges{margin:10px 0;}
+  .pop-badge{
+    display:inline-block;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10px;
+    letter-spacing:0.4px;
+    padding:3px 8px;
+    border-radius:20px;
+    background:rgba(47,122,120,0.12);
+    color:var(--sound);
+    margin:0 4px 4px 0;
+  }
+  .pop-badge.fee{background:rgba(211,84,26,0.12); color:var(--buoy-dim);}
+  .pop-actions{margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;}
+  .pop-actions a, .pop-actions button{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.4px;
+    text-decoration:none;
+    color:#fff;
+    background:var(--buoy);
+    padding:7px 10px;
+    border:none;
+    border-radius:3px;
+    flex:1 1 auto;
+    min-width:64px;
+    text-align:center;
+    cursor:pointer;
+  }
+  .pop-actions a.secondary, .pop-actions button.secondary{
+    background:transparent;
+    border:1px solid var(--sound);
+    color:var(--sound);
+  }
+  .pop-actions button.secondary svg{width:12px;height:12px; vertical-align:-1px; margin-right:3px;}
+
+  /* ---------- Marker icon ---------- */
+  .ramp-pin{
+    width:16px; height:16px;
+    background:var(--buoy);
+    border:2px solid var(--paper-hi);
+    border-radius:50% 50% 50% 0;
+    transform:rotate(-45deg);
+    box-shadow:0 1px 4px rgba(0,0,0,0.5);
+  }
+  .marker-cluster-custom{
+    background:rgba(14,42,61,0.88);
+    border:2px solid var(--brass);
+    border-radius:50%;
+    color:var(--paper-hi);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:600;
+    font-size:12px;
+  }
+
+  /* ---------- Loading ---------- */
+  #loading{
+    position:fixed; inset:0; z-index:2000;
+    background:var(--navy-deep);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:18px;
+    transition:opacity 0.5s ease;
+  }
+  #loading.hide{opacity:0; pointer-events:none;}
+  #loading svg{width:64px; height:64px; animation:spin 1.4s linear infinite;}
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  #loading p{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    color:var(--brass);
+  }
+  #loading .lname{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:24px;
+    color:var(--paper-hi);
+  }
+
+  #error-banner{
+    position:fixed; top:70px; left:50%; transform:translateX(-50%); z-index:2000;
+    background:#3a1410; color:#f3d9c9; border:1px solid var(--buoy);
+    font-family:'IBM Plex Mono', monospace; font-size:12px;
+    padding:12px 18px; border-radius:6px; max-width:420px; text-align:center;
+    display:none; line-height:1.6;
+  }
+  #error-banner a{color:#ffb38a;}
+
+  @media (max-width:720px){
+    #ledger{width:88vw;}
+    #titleblock{flex-direction:column; align-items:flex-start; gap:8px;}
+    #titleblock .name{font-size:17px;}
+    #compass{width:44px; height:44px;}
+    #locate-btn{width:38px; height:38px;}
+    #layer-toggle button{padding:6px 10px; font-size:10px;}
+    #ledger-toggle span{display:none;}
+    .leaflet-popup-content{width:220px !important;}
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    #compass, #loading svg, #ledger{transition:none; animation:none;}
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <svg viewBox="0 0 100 100" fill="none">
+    <circle cx="50" cy="50" r="44" stroke="#b08d57" stroke-width="2" opacity="0.4"/>
+    <path d="M50 10 L58 46 L50 50 L42 46 Z" fill="#d3541a"/>
+    <path d="M50 90 L42 54 L50 50 L58 54 Z" fill="#efe6d3"/>
+    <circle cx="50" cy="50" r="4" fill="#efe6d3"/>
+  </svg>
+  <div class="lname">Florida Boat Ramp Atlas</div>
+  <p id="loading-text">Charting the FWC inventory…</p>
+</div>
+
+<div id="error-banner"></div>
+
+<div id="titleblock">
+  <div class="name">Florida Boat Ramp Atlas
+    <small>FWC public access inventory</small>
+  </div>
+  <div id="count-badge">— ramps charted</div>
+</div>
+
+<div id="map"></div>
+
+<div id="ledger">
+  <div id="ledger-head">
+    <h1>The Manifest</h1>
+    <p>Every publicly accessible boat ramp on file with Florida Fish &amp; Wildlife. Search, filter by county or water, and click an entry to sail there.</p>
+  </div>
+
+  <div class="field">
+    <label for="search">Search by name, city, or water body</label>
+    <input id="search" type="text" placeholder="e.g. Wekiva, Blue Spring, St. Johns…" autocomplete="off">
+  </div>
+
+  <div class="field">
+    <label for="county-select">County</label>
+    <select id="county-select"><option value="">All counties</option></select>
+  </div>
+
+  <div class="field">
+    <label for="water-select">Water type</label>
+    <select id="water-select"><option value="">Fresh &amp; salt</option></select>
+  </div>
+
+  <div class="checkrow">
+    <input type="checkbox" id="free-only">
+    <label for="free-only" style="margin:0; text-transform:none; letter-spacing:0.2px; font-size:12.5px; color:var(--ink);">Free ramps only</label>
+  </div>
+
+  <div class="field" style="margin-top:6px;">
+    <label>Amenities</label>
+  </div>
+  <div class="checkrow" style="padding-top:2px;">
+    <input type="checkbox" id="restroom-only">
+    <label for="restroom-only" style="margin:0; text-transform:none; letter-spacing:0.2px; font-size:12.5px; color:var(--ink);">Restroom on site</label>
+  </div>
+  <div class="checkrow" style="padding-top:8px;">
+    <input type="checkbox" id="ada-only">
+    <label for="ada-only" style="margin:0; text-transform:none; letter-spacing:0.2px; font-size:12.5px; color:var(--ink);">ADA accessible</label>
+  </div>
+  <div class="checkrow" style="padding-top:8px;">
+    <input type="checkbox" id="dock-only">
+    <label for="dock-only" style="margin:0; text-transform:none; letter-spacing:0.2px; font-size:12.5px; color:var(--ink);">Has a dock</label>
+  </div>
+
+  <div class="field">
+    <label for="lanes-select">Launch lanes</label>
+    <select id="lanes-select">
+      <option value="0">Any</option>
+      <option value="2">2 or more</option>
+      <option value="3">3 or more</option>
+    </select>
+  </div>
+
+  <div id="results-count">
+    <span id="results-label">— entries</span>
+    <button id="clear-filters">CLEAR ALL</button>
+  </div>
+
+  <div id="manifest"></div>
+</div>
+
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<script>
+(function(){
+
+  if(typeof L === 'undefined'){
+    document.getElementById('loading').classList.add('hide');
+    var el = document.getElementById('error-banner');
+    el.innerHTML = 'The map library failed to load from the CDN — check your network/ad-blocker and reload.';
+    el.style.display = 'block';
+    return;
+  }
+
+  // ---------------------------------------------------------------
+  // Config
+  // ---------------------------------------------------------------
+  var FWC_QUERY_URL = "https://gis.myfwc.com/mapping/rest/services/Open_Data/FWC_Florida_Boat_Ramp_Inventory/MapServer/4/query";
+  var PAGE_SIZE = 1000;
+  var FL_CENTER = [27.85, -81.6];
+  var FL_ZOOM = 7;
+
+  var OUT_FIELDS = [
+    "OBJECTID","RampName","RampType","AccessType","PrimaryAdminEntity",
+    "Status","Hours","isFeeRequired","FeeAmount","FeeCollectionType",
+    "RampSurface","RampCondition","TotalLanes","DockType","RestroomType",
+    "isRestroomAccessible","AccessibilityLevel","Street1","City","County","ZipCode",
+    "WaterType","WaterBodyName","ContactPhone","URL","Amenities","Latitude","Longitude"
+  ].join(",");
+
+  var jsonpCounter = 0;
+  function jsonpRequest(url){
+    return new Promise(function(resolve, reject){
+      var cbName = 'fwc_jsonp_cb_' + (jsonpCounter++) + '_' + Date.now();
+      var script = document.createElement('script');
+      var timeoutId = setTimeout(function(){
+        cleanup();
+        reject(new Error('JSONP request timed out'));
+      }, 20000);
+
+      function cleanup(){
+        clearTimeout(timeoutId);
+        delete window[cbName];
+        if(script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window[cbName] = function(data){
+        cleanup();
+        resolve(data);
+      };
+      script.onerror = function(){
+        cleanup();
+        reject(new Error('JSONP script failed to load'));
+      };
+      script.src = url + '&callback=' + cbName;
+      document.head.appendChild(script);
+    });
+  }
+
+  var CLUSTER_THRESHOLD = 10; // groups this size or smaller show as individual pins, not a bubble
+  var CLUSTER_PIXEL_SIZE = 50; // grid cell size in screen px used to decide what's "close enough" to group
+
+  var map = L.map('map', {
+    zoomControl:false,
+    minZoom:6,
+    maxZoom:18,
+    attributionControl:true
+  }).setView(FL_CENTER, FL_ZOOM);
+
+  L.control.zoom({position:'topright'}).addTo(map);
+
+  var mapLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OSM &middot; CARTO &middot; Ramps: <a href="https://myfwc.com/boating/boat-ramps-access/">FWC</a>',
+    subdomains:'abcd',
+    maxZoom:19
+  }).addTo(map);
+
+  var satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Imagery &copy; Esri &middot; Ramps: <a href="https://myfwc.com/boating/boat-ramps-access/">FWC</a>',
+    maxZoom:19
+  });
+
+  // Reference overlays so satellite view still shows road/place names
+  var satLabelsRoads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom:19, attribution:''
+  });
+  var satLabelsPlaces = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom:19, attribution:''
+  });
+  var satLabels = L.layerGroup([satLabelsRoads, satLabelsPlaces]);
+
+  var LayerToggleControl = L.Control.extend({
+    options: {position: 'bottomleft'},
+    onAdd: function(){
+      var container = L.DomUtil.create('div', '');
+      container.id = 'layer-toggle';
+      container.innerHTML =
+        '<button id="layer-map" class="active" type="button">Map</button>' +
+        '<button id="layer-sat" type="button">Satellite</button>';
+      L.DomEvent.disableClickPropagation(container);
+      return container;
+    }
+  });
+  map.addControl(new LayerToggleControl());
+
+  var MapToolsControl = L.Control.extend({
+    options: {position: 'bottomright'},
+    onAdd: function(){
+      var container = L.DomUtil.create('div', '');
+      container.id = 'map-tools';
+      container.innerHTML =
+        '<button id="locate-btn" title="Show my location" type="button">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>' +
+          '</svg>' +
+        '</button>' +
+        '<svg id="compass" viewBox="0 0 100 100" title="Reset view to Florida">' +
+          '<circle cx="50" cy="50" r="47" fill="#0e2a3d" stroke="#b08d57" stroke-width="2"/>' +
+          '<path d="M50 8 L58 46 L50 50 L42 46 Z" fill="#d3541a"/>' +
+          '<path d="M50 92 L42 54 L50 50 L58 54 Z" fill="#efe6d3"/>' +
+          '<path d="M8 50 L46 42 L50 50 L46 58 Z" fill="#efe6d3" opacity="0.6"/>' +
+          '<path d="M92 50 L54 58 L50 50 L54 42 Z" fill="#efe6d3" opacity="0.6"/>' +
+          '<circle cx="50" cy="50" r="4" fill="#efe6d3"/>' +
+          '<text x="50" y="22" text-anchor="middle" fill="#efe6d3" font-size="9" font-family="IBM Plex Mono, monospace" font-weight="600">N</text>' +
+        '</svg>';
+      L.DomEvent.disableClickPropagation(container);
+      return container;
+    }
+  });
+  map.addControl(new MapToolsControl());
+
+  var FilterToggleControl = L.Control.extend({
+    options: {position: 'topleft'},
+    onAdd: function(){
+      var container = L.DomUtil.create('div', '');
+      container.id = 'ledger-toggle';
+      container.title = 'Toggle the manifest';
+      container.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+          '<path d="M4 6h16M7 12h10M10 18h4"/>' +
+        '</svg>' +
+        '<span>Filters</span>';
+      L.DomEvent.disableClickPropagation(container);
+      container.addEventListener('click', function(){
+        document.getElementById('ledger').classList.toggle('collapsed');
+      });
+      return container;
+    }
+  });
+  map.addControl(new FilterToggleControl());
+
+  function syncTitleblockHeight(){
+    var tb = document.getElementById('titleblock');
+    document.documentElement.style.setProperty('--tb-h', tb.offsetHeight + 'px');
+  }
+  syncTitleblockHeight();
+  window.addEventListener('resize', syncTitleblockHeight);
+  if('ResizeObserver' in window){
+    new ResizeObserver(syncTitleblockHeight).observe(document.getElementById('titleblock'));
+  } else if(document.fonts && document.fonts.ready){
+    // Fallback for older browsers: fonts loading can change wrapped height after first paint
+    document.fonts.ready.then(syncTitleblockHeight);
+  }
+
+  document.getElementById('layer-map').addEventListener('click', function(){
+    if(map.hasLayer(satLayer)) map.removeLayer(satLayer);
+    if(map.hasLayer(satLabels)) map.removeLayer(satLabels);
+    if(!map.hasLayer(mapLayer)) mapLayer.addTo(map);
+    document.getElementById('layer-map').classList.add('active');
+    document.getElementById('layer-sat').classList.remove('active');
+  });
+  document.getElementById('layer-sat').addEventListener('click', function(){
+    if(map.hasLayer(mapLayer)) map.removeLayer(mapLayer);
+    if(!map.hasLayer(satLayer)) satLayer.addTo(map);
+    if(!map.hasLayer(satLabels)) satLabels.addTo(map);
+    document.getElementById('layer-sat').classList.add('active');
+    document.getElementById('layer-map').classList.remove('active');
+  });
+
+  // A plain layer group we repopulate ourselves on every pan/zoom, giving us
+  // full control over exactly when a group of ramps bubbles into a cluster.
+  var clusterGroup = L.layerGroup().addTo(map);
+
+  var rampIcon = L.divIcon({
+    className:'',
+    html:'<div class="ramp-pin"></div>',
+    iconSize:[16,16],
+    iconAnchor:[8,14],
+    popupAnchor:[0,-14]
+  });
+
+  // ---------------------------------------------------------------
+  // Data fetch (paginated Esri REST query -> GeoJSON)
+  // ---------------------------------------------------------------
+  var allRamps = []; // normalized records
+  var markerByObjectId = {};
+
+  function buildUrl(offset, format){
+    var params = new URLSearchParams({
+      where: "1=1",
+      outFields: OUT_FIELDS,
+      f: format,
+      outSR: "4326",
+      resultRecordCount: String(PAGE_SIZE),
+      resultOffset: String(offset)
+    });
+    return FWC_QUERY_URL + "?" + params.toString();
+  }
+
+  var useJsonp = false; // flips to true if a plain CORS fetch fails
+
+  // Normalizes an Esri "f=json" feature (attributes + geometry.x/y) into
+  // the same {properties, geometry:{coordinates}} shape GeoJSON already uses,
+  // so the rest of the pipeline doesn't need to care which transport we used.
+  function esriFeatureToGeoJsonLike(f){
+    if(!f.geometry) return {properties: f.attributes, geometry: null};
+    return {
+      properties: f.attributes,
+      geometry: {coordinates: [f.geometry.x, f.geometry.y]}
+    };
+  }
+
+  function fetchPageCors(offset){
+    return fetch(buildUrl(offset, 'geojson')).then(function(res){
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    }).then(function(data){
+      if(data.error) throw new Error(data.error.message || 'FWC service error');
+      return data.features || [];
+    });
+  }
+
+  function fetchPageJsonp(offset){
+    return jsonpRequest(buildUrl(offset, 'json')).then(function(data){
+      if(data.error) throw new Error(data.error.message || 'FWC service error');
+      return (data.features || []).map(esriFeatureToGeoJsonLike);
+    });
+  }
+
+  function fetchPage(offset){
+    if(useJsonp) return fetchPageJsonp(offset);
+    return fetchPageCors(offset).catch(function(err){
+      console.warn('Direct fetch blocked (' + err.message + '), switching to JSONP…');
+      useJsonp = true;
+      return fetchPageJsonp(offset);
+    });
+  }
+
+  function fetchAll(){
+    var offset = 0;
+    var features = [];
+
+    function step(){
+      document.getElementById('loading-text').textContent =
+        'Charting the FWC inventory… ' + features.length + ' ramps loaded';
+      return fetchPage(offset).then(function(page){
+        features = features.concat(page);
+        if(page.length === PAGE_SIZE){
+          offset += PAGE_SIZE;
+          return step();
+        }
+        return features;
+      });
+    }
+    return step();
+  }
+
+  function normalize(features){
+    return features.map(function(f){
+      var p = f.properties;
+      var coords = f.geometry ? f.geometry.coordinates : null;
+      if(!coords) return null;
+      return {
+        id: p.OBJECTID,
+        name: (p.RampName || 'Unnamed ramp').trim(),
+        county: (p.County || '').trim(),
+        city: (p.City || '').trim(),
+        water: (p.WaterBodyName || '').trim(),
+        waterType: (p.WaterType || '').trim(),
+        fee: (p.isFeeRequired || '').trim().toLowerCase() === 'yes',
+        feeAmount: p.FeeAmount,
+        lanes: p.TotalLanes,
+        dock: (p.DockType || '').trim(),
+        restroom: (p.RestroomType || '').trim(),
+        accessibility: (p.AccessibilityLevel || '').trim(),
+        surface: (p.RampSurface || '').trim(),
+        admin: (p.PrimaryAdminEntity || '').trim(),
+        status: (p.Status || '').trim(),
+        hours: (p.Hours || '').trim(),
+        street: (p.Street1 || '').trim(),
+        zip: (p.ZipCode || '').trim(),
+        phone: (p.ContactPhone || '').trim(),
+        url: (p.URL || '').trim(),
+        lat: coords[1],
+        lng: coords[0]
+      };
+    }).filter(function(r){
+      return r && r.lat && r.lng && r.status.toLowerCase() !== 'closed';
+    }).map(function(r){
+      r.hasRestroom = !!r.restroom && r.restroom.toLowerCase() !== 'none';
+      r.hasDock = !!r.dock && r.dock.toLowerCase() !== 'none';
+      r.isAda = !!r.accessibility && r.accessibility.toLowerCase().indexOf('not') === -1;
+      return r;
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Rendering
+  // ---------------------------------------------------------------
+  var manifestEl = document.getElementById('manifest');
+  var resultsLabel = document.getElementById('results-label');
+  var countBadge = document.getElementById('count-badge');
+
+  function directionsUrl(r){
+    return 'https://www.google.com/maps/dir/?api=1&destination=' + r.lat + ',' + r.lng;
+  }
+
+  function shareUrl(r){
+    var url = new URL(window.location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('ramp', r.id);
+    return url.toString();
+  }
+
+  function popupHtml(r){
+    var badges = '';
+    if(r.waterType) badges += '<span class="pop-badge">'+escapeHtml(r.waterType)+'</span>';
+    if(r.lanes) badges += '<span class="pop-badge">'+r.lanes+' lane'+(r.lanes==1?'':'s')+'</span>';
+    badges += r.fee ? '<span class="pop-badge fee">Fee'+(r.feeAmount? ' · $'+r.feeAmount : '')+'</span>' : '<span class="pop-badge">Free</span>';
+    if(r.hasRestroom) badges += '<span class="pop-badge">Restroom</span>';
+    if(r.hasDock) badges += '<span class="pop-badge">Dock</span>';
+    if(r.isAda) badges += '<span class="pop-badge">ADA</span>';
+
+    var locLine = [r.street, r.city, r.zip].filter(Boolean).join(', ');
+
+    return '' +
+      '<div class="pop-tag">'+escapeHtml(r.county || 'Florida')+' County</div>'+
+      '<div class="pop-name">'+escapeHtml(r.name)+'</div>'+
+      (r.water ? '<div class="pop-row"><b>Water:</b> '+escapeHtml(r.water)+'</div>' : '')+
+      (locLine ? '<div class="pop-row">'+escapeHtml(locLine)+'</div>' : '')+
+      (r.hours ? '<div class="pop-row"><b>Hours:</b> '+escapeHtml(r.hours)+'</div>' : '')+
+      (r.admin ? '<div class="pop-row"><b>Managed by:</b> '+escapeHtml(r.admin)+'</div>' : '')+
+      '<div class="pop-badges">'+badges+'</div>'+
+      '<div class="pop-actions">'+
+        '<a href="'+directionsUrl(r)+'" target="_blank" rel="noopener">Directions</a>'+
+        '<button type="button" class="secondary share-btn" data-id="'+r.id+'">'+
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+
+            '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>'+
+            '<path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/>'+
+          '</svg>Share'+
+        '</button>'+
+        (r.url ? '<a class="secondary" href="'+escapeHtml(r.url)+'" target="_blank" rel="noopener">FWC page</a>' : '')+
+      '</div>';
+  }
+
+  function shareRamp(r, btnEl){
+    var payload = {
+      title: r.name,
+      text: r.name + (r.county ? ' — ' + r.county + ' County' : '') + ' — Florida boat ramp',
+      url: shareUrl(r)
+    };
+    var flash = function(msg){
+      var original = btnEl.innerHTML;
+      btnEl.textContent = msg;
+      setTimeout(function(){ btnEl.innerHTML = original; }, 1800);
+    };
+    if(navigator.share){
+      navigator.share(payload).catch(function(){ /* user cancelled — no-op */ });
+    } else if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(payload.url)
+        .then(function(){ flash('Link copied!'); })
+        .catch(function(){ flash('Copy failed'); });
+    } else {
+      window.prompt('Copy this link:', payload.url);
+    }
+  }
+
+  document.getElementById('map').addEventListener('click', function(e){
+    var btn = e.target.closest && e.target.closest('.share-btn');
+    if(!btn) return;
+    var ramp = allRamps.filter(function(r){ return String(r.id) === String(btn.dataset.id); })[0];
+    if(ramp) shareRamp(ramp, btn);
+  });
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  var currentRamps = []; // the current filtered set, independent of viewport
+
+  function clusterIcon(count){
+    var size = count < 25 ? 40 : count < 100 ? 48 : 56;
+    return L.divIcon({
+      html: '<div class="marker-cluster-custom" style="width:'+size+'px;height:'+size+'px;">'+count+'</div>',
+      className: '',
+      iconSize: L.point(size, size)
+    });
+  }
+
+  function renderClusters(){
+    clusterGroup.clearLayers();
+    markerByObjectId = {};
+
+    var zoom = map.getZoom();
+    var bounds = map.getBounds().pad(0.4);
+    var visible = currentRamps.filter(function(r){
+      return bounds.contains([r.lat, r.lng]);
+    });
+
+    // Bucket visible ramps into a screen-pixel grid at the current zoom level.
+    var cells = {};
+    visible.forEach(function(r){
+      var pt = map.project([r.lat, r.lng], zoom);
+      var key = Math.floor(pt.x / CLUSTER_PIXEL_SIZE) + '_' + Math.floor(pt.y / CLUSTER_PIXEL_SIZE);
+      if(!cells[key]) cells[key] = [];
+      cells[key].push(r);
+    });
+
+    Object.keys(cells).forEach(function(key){
+      var group = cells[key];
+
+      if(group.length > CLUSTER_THRESHOLD){
+        var latSum = 0, lngSum = 0;
+        group.forEach(function(r){ latSum += r.lat; lngSum += r.lng; });
+        var center = [latSum / group.length, lngSum / group.length];
+
+        var bubble = L.marker(center, {icon: clusterIcon(group.length)});
+        bubble.on('click', function(){
+          var bounds = L.latLngBounds(group.map(function(r){ return [r.lat, r.lng]; }));
+          map.flyToBounds(bounds, {padding:[60,60], maxZoom: Math.min(zoom + 4, 18), duration:0.6});
+        });
+        clusterGroup.addLayer(bubble);
+      } else {
+        group.forEach(function(r){
+          var m = L.marker([r.lat, r.lng], {icon: rampIcon});
+          m.bindPopup(popupHtml(r));
+          m._rampId = r.id;
+          markerByObjectId[r.id] = m;
+          clusterGroup.addLayer(m);
+        });
+      }
+    });
+  }
+
+  map.on('moveend zoomend', function(){
+    if(currentRamps.length) renderClusters();
+  });
+
+  function buildMarkers(ramps){
+    currentRamps = ramps;
+    renderClusters();
+  }
+
+  function renderManifest(ramps){
+    manifestEl.innerHTML = '';
+    if(ramps.length === 0){
+      manifestEl.innerHTML = '<div id="empty-state">No ramps match those filters.<br>Try clearing a filter or searching a broader term.</div>';
+      return;
+    }
+    var frag = document.createDocumentFragment();
+    ramps.slice(0, 400).forEach(function(r){
+      var btn = document.createElement('button');
+      btn.className = 'entry';
+      btn.dataset.id = r.id;
+      var metaParts = [r.county ? r.county + ' Co.' : null, r.waterType || null, r.fee ? 'Fee' : 'Free'].filter(Boolean);
+      btn.innerHTML = '<div class="rname">'+escapeHtml(r.name)+'</div>'+
+                       '<div class="rmeta">'+metaParts.join('<span class="dot">&middot;</span>')+'</div>';
+      btn.addEventListener('click', function(){
+        focusRamp(r);
+      });
+      frag.appendChild(btn);
+    });
+    manifestEl.appendChild(frag);
+  }
+
+  function focusRamp(r){
+    // Once the fly animation settles, moveend fires renderClusters() (registered
+    // above) which repopulates markerByObjectId — our listener runs right after
+    // it since it's attached later on the same event, so the marker will exist.
+    map.once('moveend', function(){
+      var marker = markerByObjectId[r.id];
+      if(marker) marker.openPopup();
+    });
+    map.flyTo([r.lat, r.lng], 15, {duration:0.6});
+
+    document.querySelectorAll('.entry').forEach(function(el){
+      el.classList.toggle('active', el.dataset.id == r.id);
+    });
+    if(window.innerWidth <= 720){
+      document.getElementById('ledger').classList.add('collapsed');
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // Filters
+  // ---------------------------------------------------------------
+  var searchInput = document.getElementById('search');
+  var countySelect = document.getElementById('county-select');
+  var waterSelect = document.getElementById('water-select');
+  var freeOnly = document.getElementById('free-only');
+  var restroomOnly = document.getElementById('restroom-only');
+  var adaOnly = document.getElementById('ada-only');
+  var dockOnly = document.getElementById('dock-only');
+  var lanesSelect = document.getElementById('lanes-select');
+
+  function populateFilterOptions(ramps){
+    var counties = Array.from(new Set(ramps.map(function(r){return r.county;}).filter(Boolean))).sort();
+    counties.forEach(function(c){
+      var opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      countySelect.appendChild(opt);
+    });
+    var waters = Array.from(new Set(ramps.map(function(r){return r.waterType;}).filter(Boolean))).sort();
+    waters.forEach(function(w){
+      var opt = document.createElement('option');
+      opt.value = w; opt.textContent = w;
+      waterSelect.appendChild(opt);
+    });
+  }
+
+  function applyFilters(){
+    var term = searchInput.value.trim().toLowerCase();
+    var county = countySelect.value;
+    var water = waterSelect.value;
+    var onlyFree = freeOnly.checked;
+    var onlyRestroom = restroomOnly.checked;
+    var onlyAda = adaOnly.checked;
+    var onlyDock = dockOnly.checked;
+    var minLanes = parseInt(lanesSelect.value, 10) || 0;
+
+    var filtered = allRamps.filter(function(r){
+      if(county && r.county !== county) return false;
+      if(water && r.waterType !== water) return false;
+      if(onlyFree && r.fee) return false;
+      if(onlyRestroom && !r.hasRestroom) return false;
+      if(onlyAda && !r.isAda) return false;
+      if(onlyDock && !r.hasDock) return false;
+      if(minLanes && (!r.lanes || r.lanes < minLanes)) return false;
+      if(term){
+        var hay = (r.name + ' ' + r.city + ' ' + r.water + ' ' + r.county).toLowerCase();
+        if(hay.indexOf(term) === -1) return false;
+      }
+      return true;
+    });
+
+    buildMarkers(filtered);
+    renderManifest(filtered);
+    resultsLabel.textContent = filtered.length + (filtered.length === 1 ? ' entry' : ' entries') +
+      (filtered.length > 400 ? ' (showing first 400)' : '');
+    return filtered;
+  }
+
+  var debounceTimer;
+  function debouncedFilter(){
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(applyFilters, 180);
+  }
+
+  searchInput.addEventListener('input', debouncedFilter);
+  countySelect.addEventListener('change', applyFilters);
+  waterSelect.addEventListener('change', applyFilters);
+  freeOnly.addEventListener('change', applyFilters);
+  restroomOnly.addEventListener('change', applyFilters);
+  adaOnly.addEventListener('change', applyFilters);
+  dockOnly.addEventListener('change', applyFilters);
+  lanesSelect.addEventListener('change', applyFilters);
+  document.getElementById('clear-filters').addEventListener('click', function(){
+    searchInput.value = '';
+    countySelect.value = '';
+    waterSelect.value = '';
+    freeOnly.checked = false;
+    restroomOnly.checked = false;
+    adaOnly.checked = false;
+    dockOnly.checked = false;
+    lanesSelect.value = '0';
+    applyFilters();
+  });
+
+  // ---------------------------------------------------------------
+  // Chrome: compass reset
+  // ---------------------------------------------------------------
+  document.getElementById('compass').addEventListener('click', function(){
+    map.flyTo(FL_CENTER, FL_ZOOM, {duration:0.8});
+  });
+
+  var userMarker = null;
+  var userAccuracyCircle = null;
+  var locateBtn = document.getElementById('locate-btn');
+
+  locateBtn.addEventListener('click', function(){
+    if(!navigator.geolocation){
+      showError('This browser does not support geolocation.');
+      return;
+    }
+    locateBtn.classList.add('loading');
+    navigator.geolocation.getCurrentPosition(function(pos){
+      locateBtn.classList.remove('loading');
+      locateBtn.classList.add('active');
+      var lat = pos.coords.latitude, lng = pos.coords.longitude, acc = pos.coords.accuracy;
+
+      if(userMarker){ map.removeLayer(userMarker); }
+      if(userAccuracyCircle){ map.removeLayer(userAccuracyCircle); }
+
+      userAccuracyCircle = L.circle([lat, lng], {
+        radius: acc, color:'#2f7a78', weight:1, fillColor:'#2f7a78', fillOpacity:0.12
+      }).addTo(map);
+
+      userMarker = L.marker([lat, lng], {
+        icon: L.divIcon({className:'', html:'<div class="user-dot"></div>', iconSize:[16,16], iconAnchor:[8,8]}),
+        zIndexOffset: 1000
+      }).addTo(map).bindPopup('You are here');
+
+      map.flyTo([lat, lng], 14, {duration:0.8});
+    }, function(err){
+      locateBtn.classList.remove('loading');
+      var msg = err.code === 1 ? 'Location permission was denied — enable it in your browser settings to use this.' :
+                'Could not determine your location right now.';
+      showError(msg);
+    }, {enableHighAccuracy:true, timeout:10000});
+  });
+
+  if(window.innerWidth <= 720){
+    document.getElementById('ledger').classList.add('collapsed');
+  }
+
+  // ---------------------------------------------------------------
+  // Boot
+  // ---------------------------------------------------------------
+  function showError(msg){
+    var el = document.getElementById('error-banner');
+    el.innerHTML = msg + ' Meanwhile, try the FWC\'s own <a href="https://gis.myfwc.com/BoatRampFinder/" target="_blank" rel="noopener">Boat Ramp Finder</a>.';
+    el.style.display = 'block';
+  }
+
+  fetchAll()
+    .then(function(features){
+      allRamps = normalize(features);
+      if(allRamps.length === 0){
+        throw new Error('The FWC service returned no records.');
+      }
+      populateFilterOptions(allRamps);
+      applyFilters();
+      countBadge.textContent = allRamps.length.toLocaleString() + ' ramps charted';
+      document.getElementById('loading').classList.add('hide');
+
+      var sharedId = new URLSearchParams(window.location.search).get('ramp');
+      if(sharedId){
+        var shared = allRamps.filter(function(r){ return String(r.id) === String(sharedId); })[0];
+        if(shared) setTimeout(function(){ focusRamp(shared); }, 300);
+      }
+    })
+    .catch(function(err){
+      console.error(err);
+      document.getElementById('loading').classList.add('hide');
+      showError('Could not load the FWC boat ramp service right now (' + err.message + ').');
+    });
+
+})();
+</script>
+
+</body>
+</html>
